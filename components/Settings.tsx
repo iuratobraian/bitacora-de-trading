@@ -31,102 +31,126 @@ input bool   InpSyncHistory = true;
 string API_URL = "{{URL}}/rest/v1/app_trades";
 string API_KEY = "{{KEY}}";
 
-//+------------------------------------------------------------------+
-//| Expert initialization function                                   |
-//+------------------------------------------------------------------+
-int OnInit()
-{
-   Print("Apex Connector Iniciado - Cuenta: ", InpAccountRef);
-   EventSetTimer(5);
+struct DealInfo {
+   ulong ticket;
+   long pos_id;
+};
+
+DealInfo trades_buffer[];
+int history_total = 0;
+int current_index = 0;
+bool sync_active = false;
+bool critical_error = false;
+
+string DoubleToJSON(double val, int digits) {
+   string s = DoubleToString(val, digits);
+   StringReplace(s, ",", "."); 
+   return s;
+}
+
+int OnInit() {
+   if(!TerminalInfoInteger(TERMINAL_DLLS_ALLOWED)) {
+       Alert("ERROR: Habilita WebRequest en Opciones (Ctrl+O)");
+       return(INIT_FAILED);
+   }
+   Comment("Apex v12.0: ESCANEO DE COMISIONES (Entrada + Salida)");
+   if(InpSyncHistory) {
+      EventSetTimer(2); 
+      sync_active = true;
+   }
    return(INIT_SUCCEEDED);
 }
 
-//+------------------------------------------------------------------+
-//| Expert deinitialization function                                 |
-//+------------------------------------------------------------------+
-void OnDeinit(const int reason)
-{
-   EventKillTimer();
-}
+void OnDeinit(const int reason) { EventKillTimer(); Comment(""); }
 
-//+------------------------------------------------------------------+
-//| Expert tick function                                             |
-//+------------------------------------------------------------------+
-void OnTick()
-{
-}
-
-//+------------------------------------------------------------------+
-//| Timer function                                                   |
-//+------------------------------------------------------------------+
-void OnTimer()
-{
-   SyncTrades();
-}
-
-//+------------------------------------------------------------------+
-//| Sincronizar Trades con la Bitácora                               |
-//+------------------------------------------------------------------+
-void SyncTrades()
-{
-   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return;
+void OnTimer() {
+   if (!sync_active || critical_error) return;
    
-   // Escanear Historial
-   if(InpSyncHistory)
-   {
-      HistorySelect(TimeCurrent()-86400*7, TimeCurrent());
-      for(int i=HistoryDealsTotal()-1; i>=0; i--)
-      {
-         ulong ticket = HistoryDealGetTicket(i);
-         long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
-         if(entry == DEAL_ENTRY_OUT)
-         {
-            SendTradeToCloud(ticket, true);
+   if (history_total == 0) {
+      if(HistorySelect(D'1970.01.01', TimeCurrent() + 86400)) {
+         int total = HistoryDealsTotal();
+         ArrayResize(trades_buffer, total);
+         int count = 0;
+         
+         for(int i=0; i<total; i++) {
+             ulong t = HistoryDealGetTicket(i);
+             long e = HistoryDealGetInteger(t, DEAL_ENTRY);
+             if(e == DEAL_ENTRY_OUT || e == DEAL_ENTRY_OUT_BY || e == DEAL_ENTRY_INOUT) {
+                 trades_buffer[count].ticket = t;
+                 trades_buffer[count].pos_id = HistoryDealGetInteger(t, DEAL_POSITION_ID);
+                 count++;
+             }
          }
+         ArrayResize(trades_buffer, count);
+         history_total = count;
+         
+         if (count == 0) { sync_active = false; EventKillTimer(); return; }
+         Comment("Sincronizando ", count, " trades (Con calculo de comisiones)...");
+      } else return;
+   }
+
+   int batch = 0;
+   while(batch < 5 && current_index < history_total) {
+      DealInfo trade = trades_buffer[current_index];
+      if(HistorySelectByPosition(trade.pos_id)) {
+          double total_comm = 0;
+          double total_swap = 0;
+          int deals_count = HistoryDealsTotal();
+          
+          for(int k=0; k<deals_count; k++) {
+              ulong d = HistoryDealGetTicket(k);
+              total_comm += HistoryDealGetDouble(d, DEAL_COMMISSION);
+              total_swap += HistoryDealGetDouble(d, DEAL_SWAP);
+          }
+          if (!SendToCloud(trade.ticket, total_comm, total_swap) && critical_error) {
+               Comment("ERROR DE ENVIO: Revisa log");
+               sync_active = false; EventKillTimer(); return;
+          }
+          batch++; Sleep(50);
       }
+      current_index++; 
    }
    
-   // Escanear Posiciones Abiertas
-   for(int i=PositionsTotal()-1; i>=0; i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      SendTradeToCloud(ticket, false);
+   if (current_index >= history_total) {
+      Comment("SINCRONIZADO OK v12"); sync_active = false; EventKillTimer();
    }
 }
 
-//+------------------------------------------------------------------+
-//| Enviar datos a Supabase                                          |
-//+------------------------------------------------------------------+
-void SendTradeToCloud(ulong ticket, bool isHistory)
-{
-   string symbol = isHistory ? HistoryDealGetString(ticket, DEAL_SYMBOL) : PositionGetString(ticket, POSITION_SYMBOL);
-   double profit = isHistory ? HistoryDealGetDouble(ticket, DEAL_PROFIT) : PositionGetDouble(ticket, POSITION_PROFIT);
-   double commission = isHistory ? HistoryDealGetDouble(ticket, DEAL_COMMISSION) : 0;
-   double swap = isHistory ? HistoryDealGetDouble(ticket, DEAL_SWAP) : PositionGetDouble(ticket, POSITION_SWAP);
-   long type = isHistory ? HistoryDealGetInteger(ticket, DEAL_TYPE) : PositionGetInteger(ticket, POSITION_TYPE);
-   double price = isHistory ? HistoryDealGetDouble(ticket, DEAL_PRICE) : PositionGetDouble(ticket, POSITION_PRICE);
+bool SendToCloud(ulong t, double final_commission, double final_swap) {
+   double p = HistoryDealGetDouble(t, DEAL_PROFIT);
+   string sym = HistoryDealGetString(t, DEAL_SYMBOL);
+   long type = HistoryDealGetInteger(t, DEAL_TYPE);
    
-   string typeStr = (type == DEAL_TYPE_BUY || type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-   
+   if(type == DEAL_TYPE_BALANCE) return true;
+   string typeStr = (type == DEAL_TYPE_SELL) ? "BUY" : "SELL"; 
+   string sTicket = IntegerToString(t); 
+
    string json = StringFormat(
-      "{\"user_id\":\"%s\",\"account_id\":\"%s\",\"ticket\":\"%d\",\"symbol\":\"%s\",\"type\":\"%s\",\"price\":%f,\"profit\":%f,\"commission\":%f,\"swap\":%f}",
-      InpTraderRef, InpAccountRef, ticket, symbol, typeStr, price, profit, commission, swap
+      "{\\"user_id\\":\\"%s\\",\\"account_id\\":\\"%s\\",\\"symbol\\":\\"%s\\",\\"type\\":\\"%s\\",\\"price\\":%s,\\"profit\\":%s,\\"commission\\":%s,\\"swap\\":%s,\\"ticket\\":\\"%s\\"}",
+      InpTraderRef, InpAccountRef, sym, typeStr, 
+      DoubleToJSON(HistoryDealGetDouble(t, DEAL_PRICE), 5), 
+      DoubleToJSON(p, 2), 
+      DoubleToJSON(final_commission, 2), 
+      DoubleToJSON(final_swap, 2), 
+      sTicket
    );
+
+   char data[]; 
+   int len = StringToCharArray(json, data, 0, WHOLE_ARRAY, CP_UTF8);
+   if (len > 0) ArrayResize(data, len - 1);
+
+   char resData[]; string resHeaders;
+   string headers = "Content-Type: application/json\\r\\napikey: " + API_KEY + "\\r\\nAuthorization: Bearer " + API_KEY + "\\r\\nPrefer: return=minimal";
    
-   char data[];
-   ArrayResize(data, StringToCharArray(json, data, 0, WHOLE_ARRAY, CP_UTF8)-1);
-   
-   string headers = StringFormat("Content-Type: application/json\\r\\napikey: %s\\r\\nAuthorization: Bearer %s\\r\\nPrefer: resolution=merge-duplicates", API_KEY, API_KEY);
-   char result[];
-   string resultHeaders;
-   
-   int res = WebRequest("POST", API_URL, headers, 1000, data, result, resultHeaders);
-   
-   if(res == -1)
-   {
-      Print("Error en WebRequest: ", GetLastError());
-      if(GetLastError() == 4060) Print("Asegúrese de agregar la URL en la lista de permitidos.");
+   int res = WebRequest("POST", API_URL, headers, 3000, data, resData, resHeaders);
+   if (res == 200 || res == 201) return true;
+   if (res >= 400) { 
+       string serverMsg = CharArrayToString(resData);
+       Print("ERROR ", res, " | MSG: ", serverMsg);
+       critical_error = true; 
+       return false; 
    }
+   return false;
 }
 `;
 
@@ -152,260 +176,248 @@ NOTIFY pgrst, 'reload schema';
 `;
 
 const Settings: React.FC<SettingsProps> = () => {
-  const [currentUser, setCurrentUser] = React.useState<UserProfile | null>(null);
-  const [settings, setSettings] = React.useState<UserSettings>({ username: '', layoutMode: 'SIDEBAR' });
-  
-  const [activeAccount, setActiveAccount] = React.useState<Account | null>(null);
-  const [allAccounts, setAllAccounts] = React.useState<Account[]>([]);
-  
-  const [isSaved, setIsSaved] = React.useState(false);
-  const [copiedField, setCopiedField] = React.useState<string | null>(null);
-  const [dbStatus, setDbStatus] = React.useState<'CHECKING' | 'OK' | 'ERROR'>('CHECKING');
-  const [showManualRepair, setShowManualRepair] = React.useState(false);
-  
-  // Edit Account Form
-  const [editingSlot, setEditingSlot] = React.useState<string | null>(null);
-  const [editName, setEditName] = React.useState('');
-  const [editBalance, setEditBalance] = React.useState('');
+    const [currentUser, setCurrentUser] = React.useState<UserProfile | null>(null);
+    const [settings, setSettings] = React.useState<UserSettings>({ username: '', layoutMode: 'SIDEBAR' });
 
-  const loadData = () => {
-      setSettings(storageService.getSettings());
-      setCurrentUser(storageService.auth.getCurrentUser());
-      setActiveAccount(storageService.getActiveAccount());
-      setAllAccounts(storageService.getAccounts());
-  };
+    const [activeAccount, setActiveAccount] = React.useState<Account | null>(null);
+    const [allAccounts, setAllAccounts] = React.useState<Account[]>([]);
 
-  React.useEffect(() => {
-    loadData();
-    checkDatabaseSchema();
-    window.addEventListener('settings-updated', loadData);
-    window.addEventListener('apex-db-change', loadData);
-    return () => {
-        window.removeEventListener('settings-updated', loadData);
-        window.removeEventListener('apex-db-change', loadData);
+    const [isSaved, setIsSaved] = React.useState(false);
+    const [copiedField, setCopiedField] = React.useState<string | null>(null);
+    const [dbStatus, setDbStatus] = React.useState<'CHECKING' | 'OK' | 'ERROR'>('CHECKING');
+    const [showManualRepair, setShowManualRepair] = React.useState(false);
+
+    // Edit Account Form
+    const [editingSlot, setEditingSlot] = React.useState<string | null>(null);
+    const [editName, setEditName] = React.useState('');
+    const [editBalance, setEditBalance] = React.useState('');
+
+    const loadData = () => {
+        setSettings(storageService.getSettings());
+        setCurrentUser(storageService.auth.getCurrentUser());
+        setActiveAccount(storageService.getActiveAccount());
+        setAllAccounts(storageService.getAccounts());
     };
-  }, []);
 
-  const checkDatabaseSchema = async () => {
-      setDbStatus('CHECKING');
-      try {
-          const { error } = await supabase.from('app_trades').select('ticket').limit(1);
-          if (error) { setDbStatus('ERROR'); setShowManualRepair(true); } else { setDbStatus('OK'); }
-      } catch (e) { setDbStatus('ERROR'); setShowManualRepair(true); }
-  };
+    React.useEffect(() => {
+        loadData();
+        checkDatabaseSchema();
+        window.addEventListener('settings-updated', loadData);
+        window.addEventListener('apex-db-change', loadData);
+        return () => {
+            window.removeEventListener('settings-updated', loadData);
+            window.removeEventListener('apex-db-change', loadData);
+        };
+    }, []);
 
-  const handleSaveSettings = () => {
-    storageService.saveSettings(settings);
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 2000);
-  };
+    const checkDatabaseSchema = async () => {
+        setDbStatus('CHECKING');
+        try {
+            const { error } = await supabase.from('app_trades').select('ticket').limit(1);
+            if (error) { setDbStatus('ERROR'); setShowManualRepair(true); } else { setDbStatus('OK'); }
+        } catch (e) { setDbStatus('ERROR'); setShowManualRepair(true); }
+    };
 
-  const startEditing = (acc: Account) => {
-      setEditingSlot(acc.id);
-      setEditName(acc.name);
-      setEditBalance(acc.startingBalance.toString());
-  };
+    const handleSaveSettings = () => {
+        storageService.saveSettings(settings);
+        setIsSaved(true);
+        setTimeout(() => setIsSaved(false), 2000);
+    };
 
-  const saveAccountEdit = () => {
-      if (editingSlot && editName && editBalance) {
-          storageService.updateAccountDetails(editingSlot, editName, Number(editBalance));
-          setEditingSlot(null);
-          loadData();
-      }
-  };
+    const startEditing = (acc: Account) => {
+        setEditingSlot(acc.id);
+        setEditName(acc.name);
+        setEditBalance(acc.startingBalance.toString());
+    };
 
-  const handleSwitchAccount = (id: string) => {
-      storageService.switchAccount(id);
-      loadData();
-  };
+    const saveAccountEdit = () => {
+        if (editingSlot && editName && editBalance) {
+            storageService.updateAccountDetails(editingSlot, editName, Number(editBalance));
+            setEditingSlot(null);
+            loadData();
+        }
+    };
 
-  const copyToClipboard = (text: string, fieldId: string) => {
-      navigator.clipboard.writeText(text);
-      setCopiedField(fieldId);
-      setTimeout(() => setCopiedField(null), 2000);
-  };
+    const handleSwitchAccount = (id: string) => {
+        storageService.switchAccount(id);
+        loadData();
+    };
 
-  const downloadEAScript = () => {
-    const code = getEACode();
-    const blob = new Blob([code], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `ApexConnector_${activeAccount?.id || 'main'}.mq5`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+    const copyToClipboard = (text: string, fieldId: string) => {
+        navigator.clipboard.writeText(text);
+        setCopiedField(fieldId);
+        setTimeout(() => setCopiedField(null), 2000);
+    };
 
-  const openCalculator = () => {
-    window.open(`${window.location.origin}/#/calculator`, '_blank');
-  };
+    const downloadEAScript = () => {
+        const code = getEACode();
+        const blob = new Blob([code], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `ApexConnector_${activeAccount?.id || 'main'}.mq5`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
 
-  const getEACode = () => {
-     // CRÍTICO: Generar EA code con el ID de la cuenta ACTIVA seleccionada
-     // El ID ahora es fijo (ej: userId_SLOT_A), así que nunca cambia aunque se edite el nombre.
-     return EA_TEMPLATE
-        .replace('{{TRADER_ID}}', currentUser?.id || 'NO_ID')
-        .replace('{{ACCOUNT_ID}}', activeAccount?.id || 'main_default')
-        .replace('{{URL}}', SUPABASE_URL)
-        .replace('{{KEY}}', SUPABASE_ANON_KEY);
-  };
+    const openCalculator = () => {
+        window.open(`${window.location.origin}/#/calculator`, '_blank');
+    };
 
-  return (
-    <div className="w-full flex flex-col gap-8 pb-24">
-      
-      {/* 1. GESTOR DE SLOTS (CUENTAS FIJAS) */}
-      <div className="bg-surface border border-border rounded-3xl p-6">
-        <h2 className="text-xs font-black text-gray-400 mb-6 uppercase tracking-widest flex items-center gap-2">
-            <CreditCard size={14} className="text-primary" /> Slots de Conexión
-        </h2>
-        
-        <p className="text-[10px] text-gray-500 mb-4">
-            Sistema de IDs Fijos. Puedes editar el nombre y balance de cada Slot, pero el ID de conexión MT5 se mantiene constante para evitar desconfiguraciones en el EA.
-        </p>
+    const getEACode = () => {
+        // CRÍTICO: Generar EA code con el ID de la cuenta ACTIVA seleccionada
+        // El ID ahora es fijo (ej: userId_SLOT_A), así que nunca cambia aunque se edite el nombre.
+        return EA_TEMPLATE
+            .replace('{{TRADER_ID}}', currentUser?.id || 'NO_ID')
+            .replace('{{ACCOUNT_ID}}', activeAccount?.id || 'main_default')
+            .replace('{{URL}}', SUPABASE_URL)
+            .replace('{{KEY}}', SUPABASE_ANON_KEY);
+    };
 
-        {/* Lista de Slots (Limitada a los 2 que crea init) */}
-        <div className="space-y-3 mb-6">
-            {allAccounts.map((acc, index) => (
-                <div 
-                    key={acc.id} 
-                    className={`p-4 rounded-xl border transition-all flex flex-col gap-4 ${activeAccount?.id === acc.id ? 'bg-primary/5 border-primary' : 'bg-background/40 border-border'}`}
-                >
-                    <div className="flex justify-between items-center">
-                        <div onClick={() => handleSwitchAccount(acc.id)} className="cursor-pointer flex-1">
-                            <div className="flex items-center gap-2">
-                                <h3 className={`text-sm font-black ${activeAccount?.id === acc.id ? 'text-white' : 'text-gray-400'}`}>
-                                    {acc.id.includes('SLOT_A') ? 'SLOT A' : 'SLOT B'}: {acc.name}
-                                </h3>
-                                {activeAccount?.id === acc.id && <span className="bg-primary text-black text-[9px] font-bold px-2 rounded-full uppercase">Activa</span>}
-                            </div>
-                            <p className="text-[9px] text-gray-500 font-mono mt-1">ID Fijo: {acc.id}</p>
-                        </div>
-                        <div className="text-right">
-                             <p className="text-sm font-mono font-bold text-white">${acc.startingBalance}</p>
-                             <div className="flex gap-2 justify-end mt-2">
-                                {editingSlot === acc.id ? (
-                                    <button onClick={saveAccountEdit} className="text-[9px] bg-primary text-black px-3 py-1 rounded font-bold uppercase">Guardar</button>
-                                ) : (
-                                    <button onClick={() => startEditing(acc)} className="text-[9px] bg-white/10 text-white px-3 py-1 rounded font-bold uppercase hover:bg-white/20">Editar</button>
-                                )}
-                                {activeAccount?.id !== acc.id && (
-                                    <button onClick={() => handleSwitchAccount(acc.id)} className="text-[9px] border border-white/20 text-gray-300 px-3 py-1 rounded font-bold uppercase hover:bg-white/10">Activar</button>
-                                )}
-                             </div>
-                        </div>
-                    </div>
-                    
-                    {/* Formulario de Edición Inline */}
-                    {editingSlot === acc.id && (
-                        <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/5 animate-in slide-in-from-top-2">
-                            <div>
-                                <label className="text-[9px] text-gray-500 font-bold uppercase">Nombre</label>
-                                <input 
-                                    type="text" 
-                                    value={editName} 
-                                    onChange={e => setEditName(e.target.value)} 
-                                    className="w-full bg-black/40 border border-border rounded p-2 text-xs text-white"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[9px] text-gray-500 font-bold uppercase">Balance Inicial</label>
-                                <input 
-                                    type="number" 
-                                    value={editBalance} 
-                                    onChange={e => setEditBalance(e.target.value)} 
-                                    className="w-full bg-black/40 border border-border rounded p-2 text-xs text-white"
-                                />
-                            </div>
-                        </div>
-                    )}
-                </div>
-            ))}
-        </div>
-      </div>
+    return (
+        <div className="w-full flex flex-col gap-8 pb-24">
 
-      {/* 2. CONECTOR EA (Variable según cuenta activa) */}
-      <div className="bg-surface border border-border rounded-3xl p-8 relative overflow-hidden group hover:border-primary/30 transition-all">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-            <div>
-                <h2 className="text-lg font-black text-white uppercase tracking-tighter flex items-center gap-2">
-                    <Terminal size={20} className="text-primary" /> Script MT5 Apex
+            {/* 1. GESTOR DE SLOTS (CUENTAS FIJAS) */}
+            <div className="bg-surface border border-border rounded-3xl p-6">
+                <h2 className="text-xs font-black text-gray-400 mb-6 uppercase tracking-widest flex items-center gap-2">
+                    <CreditCard size={14} className="text-primary" /> Slots de Conexión
                 </h2>
-                <p className="text-xs text-gray-500 mt-1">Conecta tu MetaTrader 5 con el Slot: <span className="text-primary font-bold">{activeAccount?.id.includes('SLOT_A') ? 'A' : 'B'}</span></p>
-            </div>
-            <button 
-                onClick={downloadEAScript}
-                className="w-full md:w-auto bg-primary hover:bg-primary-dark text-black px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all shadow-xl shadow-primary/20 hover:scale-105 active:scale-95"
-            >
-                <Download size={18} /> DESCARGAR SCRIPT (.MQ5)
-            </button>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-            <div className="bg-black/30 border border-border rounded-2xl p-4">
-                <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Instrucciones de Instalación</p>
-                <ul className="text-[10px] text-gray-400 space-y-2 list-decimal list-inside">
-                    <li>Descarga el archivo <span className="text-white font-mono">.mq5</span> arriba.</li>
-                    <li>En MT5: <span className="text-white">Archivo {'>'} Abrir Carpeta de Datos</span>.</li>
-                    <li>Navega a <span className="text-white">MQL5 {'>'} Experts</span> y pega el archivo.</li>
-                    <li>Reinicia MT5 o <span className="text-white">Actualizar</span> en el Navegador.</li>
-                    <li>Arrastra el script al gráfico y activa <span className="text-white">Algo Trading</span>.</li>
-                </ul>
-            </div>
-            <div className="bg-black/30 border border-border rounded-2xl p-4">
-                <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Herramientas Adicionales</p>
-                <button 
-                    onClick={openCalculator}
-                    className="w-full mt-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-3 flex items-center justify-between group transition-all"
-                >
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
-                            <Calculator size={16} />
+
+                <p className="text-[10px] text-gray-500 mb-4">
+                    Sistema de IDs Fijos. Puedes editar el nombre y balance de cada Slot, pero el ID de conexión MT5 se mantiene constante para evitar desconfiguraciones en el EA.
+                </p>
+
+                {/* Lista de Slots (Limitada a los 2 que crea init) */}
+                <div className="space-y-3 mb-6">
+                    {allAccounts.map((acc, index) => (
+                        <div
+                            key={acc.id}
+                            className={`p-4 rounded-xl border transition-all flex flex-col gap-4 ${activeAccount?.id === acc.id ? 'bg-primary/5 border-primary' : 'bg-background/40 border-border'}`}
+                        >
+                            <div className="flex justify-between items-center">
+                                <div onClick={() => handleSwitchAccount(acc.id)} className="cursor-pointer flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <h3 className={`text-sm font-black ${activeAccount?.id === acc.id ? 'text-white' : 'text-gray-400'}`}>
+                                            {acc.id.includes('SLOT_A') ? 'SLOT A' : 'SLOT B'}: {acc.name}
+                                        </h3>
+                                        {activeAccount?.id === acc.id && <span className="bg-primary text-black text-[9px] font-bold px-2 rounded-full uppercase">Activa</span>}
+                                    </div>
+                                    <p className="text-[9px] text-gray-500 font-mono mt-1">ID Fijo: {acc.id}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm font-mono font-bold text-white">${acc.startingBalance}</p>
+                                    <div className="flex gap-2 justify-end mt-2">
+                                        {editingSlot === acc.id ? (
+                                            <button onClick={saveAccountEdit} className="text-[9px] bg-primary text-black px-3 py-1 rounded font-bold uppercase">Guardar</button>
+                                        ) : (
+                                            <button onClick={() => startEditing(acc)} className="text-[9px] bg-white/10 text-white px-3 py-1 rounded font-bold uppercase hover:bg-white/20">Editar</button>
+                                        )}
+                                        {activeAccount?.id !== acc.id && (
+                                            <button onClick={() => handleSwitchAccount(acc.id)} className="text-[9px] border border-white/20 text-gray-300 px-3 py-1 rounded font-bold uppercase hover:bg-white/10">Activar</button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Formulario de Edición Inline */}
+                            {editingSlot === acc.id && (
+                                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/5 animate-in slide-in-from-top-2">
+                                    <div>
+                                        <label className="text-[9px] text-gray-500 font-bold uppercase">Nombre</label>
+                                        <input
+                                            type="text"
+                                            value={editName}
+                                            onChange={e => setEditName(e.target.value)}
+                                            className="w-full bg-black/40 border border-border rounded p-2 text-xs text-white"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[9px] text-gray-500 font-bold uppercase">Balance Inicial</label>
+                                        <input
+                                            type="number"
+                                            value={editBalance}
+                                            onChange={e => setEditBalance(e.target.value)}
+                                            className="w-full bg-black/40 border border-border rounded p-2 text-xs text-white"
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                        <div className="text-left">
-                            <p className="text-[10px] font-black text-white uppercase tracking-widest">Calculadora de Riesgo</p>
-                            <p className="text-[9px] text-gray-500">Abrir en pestaña independiente</p>
-                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* 2. CONECTOR EA (Variable según cuenta activa) */}
+            <div className="bg-surface border border-border rounded-3xl p-8 relative overflow-hidden group hover:border-primary/30 transition-all">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+                    <div>
+                        <h2 className="text-lg font-black text-white uppercase tracking-tighter flex items-center gap-2">
+                            <Terminal size={20} className="text-primary" /> Script MT5 Apex
+                        </h2>
+                        <p className="text-xs text-gray-500 mt-1">Conecta tu MetaTrader 5 con el Slot: <span className="text-primary font-bold">{activeAccount?.id.includes('SLOT_A') ? 'A' : 'B'}</span></p>
                     </div>
-                    <ExternalLink size={14} className="text-gray-500 group-hover:text-white transition-colors" />
-                </button>
+                    <button
+                        onClick={downloadEAScript}
+                        className="w-full md:w-auto bg-primary hover:bg-primary-dark text-black px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all shadow-xl shadow-primary/20 hover:scale-105 active:scale-95"
+                    >
+                        <Download size={18} /> DESCARGAR SCRIPT (.MQ5)
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                    <div className="bg-black/30 border border-border rounded-2xl p-4">
+                        <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Instrucciones de Instalación</p>
+                        <ul className="text-[10px] text-gray-400 space-y-2 list-decimal list-inside">
+                            <li>Descarga el archivo <span className="text-white font-mono">.mq5</span> arriba.</li>
+                            <li>En MT5: <span className="text-white">Archivo {'>'} Abrir Carpeta de Datos</span>.</li>
+                            <li>Navega a <span className="text-white">MQL5 {'>'} Experts</span> y pega el archivo.</li>
+                            <li>Reinicia MT5 o <span className="text-white">Actualizar</span> en el Navegador.</li>
+                            <li>Arrastra el script al gráfico y activa <span className="text-white">Algo Trading</span>.</li>
+                        </ul>
+                    </div>
+                    <div className="bg-black/30 border border-border rounded-2xl p-4">
+                        <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Instrucciones Importantes</p>
+                        <p className="text-[10px] text-gray-400 leading-relaxed">
+                            La <span className="text-primary font-bold">Calculadora de Riesgo</span> está disponible en el Dashboard, junto al botón de nueva operación (+).
+                        </p>
+                    </div>
+                </div>
+
+                <div className="bg-black/30 border border-border rounded-2xl p-4 mb-8">
+                    <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Configuración de Seguridad</p>
+                    <p className="text-[10px] text-gray-400 leading-relaxed">
+                        Asegúrate de agregar la URL de la API en MetaTrader 5: <br />
+                        <span className="text-white font-mono block mt-1 bg-black/50 p-1 rounded">Herramientas {'>'} Opciones {'>'} Asesores Expertos {'>'} Permitir WebRequest para:</span>
+                        <span className="text-primary font-mono block mt-1">https://tgsojwhkknwynnokzini.supabase.co</span>
+                    </p>
+                </div>
+
+                <div className="bg-primary/5 rounded-2xl p-5 border border-primary/10">
+                    <p className="text-[11px] text-gray-300 leading-relaxed">
+                        <span className="text-primary font-black uppercase mr-2">Nota:</span>
+                        Este archivo ya contiene tu <strong>Trader ID</strong> y <strong>Account ID</strong> configurados. No necesitas editar el código manualmente. Simplemente instálalo y actívalo.
+                    </p>
+                </div>
             </div>
-        </div>
 
-        <div className="bg-black/30 border border-border rounded-2xl p-4 mb-8">
-            <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">Configuración de Seguridad</p>
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-                Asegúrate de agregar la URL de la API en MetaTrader 5: <br/>
-                <span className="text-white font-mono block mt-1 bg-black/50 p-1 rounded">Herramientas {'>'} Opciones {'>'} Asesores Expertos {'>'} Permitir WebRequest para:</span>
-                <span className="text-primary font-mono block mt-1">https://tgsojwhkknwynnokzini.supabase.co</span>
-            </p>
+            {/* STATUS DATABASE */}
+            {(dbStatus === 'ERROR' || showManualRepair) && (
+                <div className="bg-black/40 rounded-3xl p-6 border border-white/10">
+                    <h2 className="text-xs font-black text-red-400 uppercase mb-4 flex items-center gap-2"><ShieldAlert size={14} /> Reparación de Base de Datos</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <button onClick={() => copyToClipboard(SQL_FIX_COMMAND, 'sql_fix')} className="bg-white text-black py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-gray-200">
+                            {copiedField === 'sql_fix' ? <CheckCircle size={14} /> : <Copy size={14} />} 1. Copiar SQL
+                        </button>
+                        <a href={SUPABASE_SQL_EDITOR_URL} target="_blank" rel="noopener noreferrer" className="bg-loss text-white py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-red-600">
+                            <ExternalLink size={14} /> 2. Ejecutar
+                        </a>
+                    </div>
+                </div>
+            )}
         </div>
-
-        <div className="bg-primary/5 rounded-2xl p-5 border border-primary/10">
-             <p className="text-[11px] text-gray-300 leading-relaxed">
-                 <span className="text-primary font-black uppercase mr-2">Nota:</span> 
-                 Este archivo ya contiene tu <strong>Trader ID</strong> y <strong>Account ID</strong> configurados. No necesitas editar el código manualmente. Simplemente instálalo y actívalo.
-             </p>
-        </div>
-      </div>
-      
-       {/* STATUS DATABASE */}
-       {(dbStatus === 'ERROR' || showManualRepair) && (
-          <div className="bg-black/40 rounded-3xl p-6 border border-white/10">
-             <h2 className="text-xs font-black text-red-400 uppercase mb-4 flex items-center gap-2"><ShieldAlert size={14}/> Reparación de Base de Datos</h2>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button onClick={() => copyToClipboard(SQL_FIX_COMMAND, 'sql_fix')} className="bg-white text-black py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-gray-200">
-                    {copiedField === 'sql_fix' ? <CheckCircle size={14}/> : <Copy size={14}/>} 1. Copiar SQL
-                </button>
-                <a href={SUPABASE_SQL_EDITOR_URL} target="_blank" rel="noopener noreferrer" className="bg-loss text-white py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-red-600">
-                    <ExternalLink size={14}/> 2. Ejecutar
-                </a>
-             </div>
-          </div>
-       )}
-    </div>
-  );
+    );
 };
 
 export default Settings;

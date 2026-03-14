@@ -1,11 +1,12 @@
 
 import React from 'react';
-import { Activity, TrendingUp, DollarSign, Trophy, Wallet, Radio, List, Clock, ExternalLink, Landmark, Percent, Loader2, RefreshCw, Lightbulb, Sparkles, Plus, X, AlertTriangle, Database, Zap, Target, ShieldCheck, Thermometer, AlertOctagon, BarChart2, Crosshair, Download, Calendar, Link as LinkIcon } from 'lucide-react';
+import { Activity, TrendingUp, DollarSign, Trophy, Wallet, Radio, List, Clock, ExternalLink, Landmark, Percent, Loader2, RefreshCw, Lightbulb, Sparkles, Plus, X, AlertTriangle, Database, Zap, Target, ShieldCheck, Thermometer, AlertOctagon, BarChart2, Crosshair, Download, Calendar, Link as LinkIcon, Calculator } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import TradeEntry from './TradeEntry';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import CalendarView from './CalendarView';
+import { RiskCalculator } from './RiskCalculator';
 
 const EquityChart = React.lazy(() => import('./EquityChart'));
 const DailyPnLChart = React.lazy(() => import('./DailyPnLChart'));
@@ -133,6 +134,7 @@ const Dashboard: React.FC = () => {
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [currentMessageIndex, setCurrentMessageIndex] = React.useState(0);
   const [isEntryModalOpen, setIsEntryModalOpen] = React.useState(false);
+  const [isCalcOpen, setIsCalcOpen] = React.useState(false);
   const [dbError, setDbError] = React.useState(false);
 
   const loadData = () => {
@@ -217,6 +219,22 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
+      {/* RISK CALCULATOR MODAL */}
+      {isCalcOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10 animate-in fade-in zoom-in-95 duration-300">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsCalcOpen(false)}></div>
+            <div className="relative w-full max-w-xl">
+                <button 
+                  onClick={() => setIsCalcOpen(false)}
+                  className="absolute -top-3 -right-3 z-[110] p-2 bg-surface border border-border rounded-full text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={20} />
+                </button>
+                <RiskCalculator initialBalance={stats.baseBalance || 10000} />
+            </div>
+        </div>
+      )}
+
       {/* DB ERROR BANNER - GLOBAL */}
       {dbError && (
           <div className="mb-8 bg-loss border border-loss rounded-3xl p-6 shadow-2xl relative overflow-hidden animate-pulse cursor-pointer hover:brightness-110 transition-all" onClick={() => (document.querySelector('button[title="Ajustes"]') as HTMLElement)?.click()}>
@@ -251,6 +269,13 @@ const Dashboard: React.FC = () => {
                 title="Nueva Operación"
             >
                 <Plus size={24} className="group-hover:rotate-90 transition-transform duration-300" />
+            </button>
+            <button 
+                onClick={() => setIsCalcOpen(true)}
+                className="w-14 h-14 bg-surface border border-border text-gray-400 rounded-full flex items-center justify-center hover:text-primary hover:border-primary/30 transition-all group"
+                title="Calculadora de Riesgo"
+            >
+                <Calculator size={20} className="group-hover:scale-110 transition-transform" />
             </button>
             <button 
                 onClick={handleManualSync}
@@ -400,7 +425,7 @@ const Dashboard: React.FC = () => {
           />
           <div className="bg-surface border border-border p-5 rounded-2xl flex flex-col justify-center items-center shadow-lg">
               <p className="text-gray-500 text-[10px] font-black uppercase mb-2 tracking-widest">Win Rate Global</p>
-              <h3 className="text-3xl font-black text-white font-mono tracking-tighter">{stats.winRate}%</h3>
+              <h3 className="text-xl font-black text-white font-mono tracking-tighter">{stats.winRate}%</h3>
               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{stats.wins} G / {stats.losses} P</p>
           </div>
           <CalendarView />
