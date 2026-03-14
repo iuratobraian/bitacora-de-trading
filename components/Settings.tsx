@@ -120,19 +120,22 @@ bool SendToCloud(ulong t, double final_commission, double final_swap) {
    double p = HistoryDealGetDouble(t, DEAL_PROFIT);
    string sym = HistoryDealGetString(t, DEAL_SYMBOL);
    long type = HistoryDealGetInteger(t, DEAL_TYPE);
+   datetime time = (datetime)HistoryDealGetInteger(t, DEAL_TIME);
    
    if(type == DEAL_TYPE_BALANCE) return true;
    string typeStr = (type == DEAL_TYPE_SELL) ? "BUY" : "SELL"; 
    string sTicket = IntegerToString(t); 
+   string sTime = TimeToString(time, TIME_DATE) + "T" + TimeToString(time, TIME_MINUTES|TIME_SECONDS) + "Z";
 
    string json = StringFormat(
-      "{\\"user_id\\":\\"%s\\",\\"account_id\\":\\"%s\\",\\"symbol\\":\\"%s\\",\\"type\\":\\"%s\\",\\"price\\":%s,\\"profit\\":%s,\\"commission\\":%s,\\"swap\\":%s,\\"ticket\\":\\"%s\\"}",
+      "{\\"user_id\\":\\"%s\\",\\"account_id\\":\\"%s\\",\\"symbol\\":\\"%s\\",\\"type\\":\\"%s\\",\\"price\\":%s,\\"profit\\":%s,\\"commission\\":%s,\\"swap\\":%s,\\"ticket\\":\\"%s\\",\\"timestamp\\":\\"%s\\"}",
       InpTraderRef, InpAccountRef, sym, typeStr, 
       DoubleToJSON(HistoryDealGetDouble(t, DEAL_PRICE), 5), 
       DoubleToJSON(p, 2), 
       DoubleToJSON(final_commission, 2), 
       DoubleToJSON(final_swap, 2), 
-      sTicket
+      sTicket,
+      sTime
    );
 
    char data[]; 

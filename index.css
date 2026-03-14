@@ -5,43 +5,148 @@
 
 /* Animaciones personalizadas */
 @keyframes animate-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slide-in-from-right {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
 }
 
 @keyframes slide-in-from-bottom-10 {
-  from { transform: translateY(40px); opacity: 0; }
-  to   { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-.animate-in { animation: animate-in 0.3s ease forwards; }
-.fade-in { animation: fade-in 0.3s ease forwards; }
-.animate-spin { animation: spin 1s linear infinite; }
-.duration-300 { animation-duration: 0.3s; }
-.duration-500 { animation-duration: 0.5s; }
+.animate-in {
+  animation: animate-in 0.3s ease forwards;
+}
 
-.slide-in-from-right { animation: slide-in-from-right 0.5s ease forwards; }
-.slide-in-from-bottom-10 { animation: slide-in-from-bottom-10 0.5s ease forwards; }
+.fade-in {
+  animation: fade-in 0.3s ease forwards;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.duration-300 {
+  animation-duration: 0.3s;
+}
+
+.duration-500 {
+  animation-duration: 0.5s;
+}
+
+.slide-in-from-right {
+  animation: slide-in-from-right 0.5s ease forwards;
+}
+
+.slide-in-from-bottom-10 {
+  animation: slide-in-from-bottom-10 0.5s ease forwards;
+}
 
 /* Scrollbar personalizada */
-.custom-scrollbar::-webkit-scrollbar { width: 5px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
 
 /* Selección de texto */
-::selection { background: #00cc66; color: #000; }
+::selection {
+  background: #00cc66;
+  color: #000;
+}
+
+/* Wall Street Ticker Animation */
+.ticker-container {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.4);
+  border-top: 1px solid rgba(0, 204, 102, 0.1);
+  border-bottom: 1px solid rgba(0, 204, 102, 0.1);
+  padding: 12px 0;
+  margin-top: 24px;
+  margin-bottom: 24px;
+  white-space: nowrap;
+}
+
+.ticker-text {
+  display: inline-block;
+  padding-left: 100%;
+  animation: ticker 40s linear infinite;
+  font-family: 'Space Mono', monospace;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 14px;
+  color: #00cc66;
+  text-shadow: 0 0 10px rgba(0, 204, 102, 0.4);
+}
+
+@keyframes ticker {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  100% {
+    transform: translate3d(-100%, 0, 0);
+  }
+}
+
+.ticker-text span {
+  margin-right: 150px;
+}

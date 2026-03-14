@@ -34,26 +34,26 @@ const AppLayout: React.FC<{ currentUser: UserProfile; onLogout: () => void }> = 
     return (
         // Fondo transparente para ver bg-animation de index.html
         <div className="min-h-screen text-white font-sans selection:bg-primary selection:text-black relative overflow-x-hidden">
-            
+
             {/* BARRA DE NAVEGACIÓN FLOTANTE SUPERIOR */}
             <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[80] w-full max-w-3xl px-4 flex items-center justify-center gap-3">
                 <nav className="bg-surface/60 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-2 flex items-center gap-1 shadow-2xl shadow-black/50">
                     <div className="flex items-center gap-1">
-                        <button 
+                        <button
                             onClick={closeAllModals}
                             className="w-10 h-10 rounded-full bg-primary flex items-center justify-center mr-2 shadow-lg shadow-primary/20 hover:scale-105 transition-all"
                         >
                             <Radio size={20} className="text-black" />
                         </button>
-                        
-                        <button 
+
+                        <button
                             onClick={closeAllModals}
                             className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${!isJournalOpen && !isSettingsOpen && !isAdminOpen ? 'bg-white/10 text-primary' : 'text-gray-400 hover:text-white'}`}
                         >
                             TABLERO
                         </button>
-                        
-                        <button 
+
+                        <button
                             onClick={() => { closeAllModals(); setIsJournalOpen(true); }}
                             className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isJournalOpen ? 'bg-white/10 text-primary' : 'text-gray-400 hover:text-white'}`}
                         >
@@ -65,7 +65,7 @@ const AppLayout: React.FC<{ currentUser: UserProfile; onLogout: () => void }> = 
 
                     <div className="flex items-center gap-1">
                         {currentUser.role === 'ADMIN' && (
-                            <button 
+                            <button
                                 onClick={() => { closeAllModals(); setIsAdminOpen(true); }}
                                 className={`p-2.5 rounded-full transition-all ${isAdminOpen ? 'bg-primary/20 text-primary' : 'text-gray-500 hover:text-white'}`}
                                 title="Admin"
@@ -73,14 +73,14 @@ const AppLayout: React.FC<{ currentUser: UserProfile; onLogout: () => void }> = 
                                 <Shield size={18} />
                             </button>
                         )}
-                        <button 
+                        <button
                             onClick={() => { closeAllModals(); setIsSettingsOpen(true); }}
                             className={`p-2.5 rounded-full transition-all ${isSettingsOpen ? 'bg-primary/20 text-primary' : 'text-gray-500 hover:text-white'}`}
                             title="Ajustes"
                         >
                             <SettingsIcon size={18} />
                         </button>
-                        <button 
+                        <button
                             onClick={onLogout}
                             className="p-2.5 rounded-full text-loss/60 hover:text-loss transition-all"
                             title="Desconectar"
@@ -91,8 +91,8 @@ const AppLayout: React.FC<{ currentUser: UserProfile; onLogout: () => void }> = 
                 </nav>
 
                 {/* BOTÓN EXTERNO INDEPENDIENTE - MÁS SUTIL */}
-                <button 
-                    onClick={() => window.open('https://trade-share-theta.vercel.app/', '_blank')}
+                <button
+                    onClick={() => window.open('https://tradeportal-2025-platinum.vercel.app', '_blank')}
                     className="h-[40px] px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white transition-all flex items-center gap-2 group"
                 >
                     <Globe size={14} className="group-hover:rotate-12 transition-transform" />
@@ -102,7 +102,7 @@ const AppLayout: React.FC<{ currentUser: UserProfile; onLogout: () => void }> = 
 
             {/* CONTENIDO PRINCIPAL (DASHBOARD) */}
             <main className="pt-24 min-h-screen">
-                 <Suspense fallback={<div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin text-primary" size={32}/></div>}>
+                <Suspense fallback={<div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin text-primary" size={32} /></div>}>
                     <Routes>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/entry/:id" element={<TradeEntry />} />
@@ -112,7 +112,7 @@ const AppLayout: React.FC<{ currentUser: UserProfile; onLogout: () => void }> = 
                             </div>
                         } />
                     </Routes>
-                 </Suspense>
+                </Suspense>
             </main>
 
             {/* CAPA FLOTANTE: BITÁCORA */}
@@ -120,7 +120,7 @@ const AppLayout: React.FC<{ currentUser: UserProfile; onLogout: () => void }> = 
                 <div className="fixed inset-0 z-[100] animate-in fade-in duration-300">
                     <div className="absolute inset-0 bg-black/90 backdrop-blur-3xl" onClick={() => setIsJournalOpen(false)}></div>
                     <div className="relative h-full w-full overflow-y-auto custom-scrollbar p-4 md:p-10">
-                        <button 
+                        <button
                             onClick={() => setIsJournalOpen(false)}
                             className="fixed top-10 right-10 z-[110] p-4 bg-surface border border-border rounded-full text-white hover:scale-110 transition-all shadow-2xl"
                         >
@@ -156,12 +156,12 @@ const AppLayout: React.FC<{ currentUser: UserProfile; onLogout: () => void }> = 
                 <div className="fixed inset-0 z-[100] animate-in fade-in slide-in-from-bottom-10 duration-500">
                     <div className="absolute inset-0 bg-black/95 backdrop-blur-3xl" onClick={() => setIsAdminOpen(false)}></div>
                     <div className="relative h-full w-full p-6 md:p-20 overflow-y-auto custom-scrollbar">
-                         <button onClick={() => setIsAdminOpen(false)} className="absolute top-10 right-10 p-4 bg-white/5 rounded-full hover:bg-white/10 transition-all"><X /></button>
-                         <div className="w-full max-w-6xl mx-auto">
+                        <button onClick={() => setIsAdminOpen(false)} className="absolute top-10 right-10 p-4 bg-white/5 rounded-full hover:bg-white/10 transition-all"><X /></button>
+                        <div className="w-full max-w-6xl mx-auto">
                             <Suspense fallback={<Loader2 className="animate-spin text-primary mx-auto" />}>
                                 <AdminPanel />
                             </Suspense>
-                         </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -180,13 +180,13 @@ const App: React.FC = () => {
     useEffect(() => {
         loadData();
         window.addEventListener('apex-db-change', loadData);
-        
+
         // ⚡ ACTIVACIÓN DE SINCRONIZACIÓN EN TIEMPO REAL ⚡
         // Consulta la base de datos de Supabase cada 10 segundos para traer trades del EA
         storageService.syncFromCloud(); // Ejecución inicial inmediata
         const syncInterval = setInterval(() => {
             storageService.syncFromCloud();
-        }, 5000); 
+        }, 5000);
 
         return () => {
             window.removeEventListener('apex-db-change', loadData);
