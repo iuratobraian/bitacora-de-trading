@@ -1,0 +1,47 @@
+/* 
+  Bitácora de Trading - Global Styles
+  Estilos adicionales que complementan los definidos en index.html
+*/
+
+/* Animaciones personalizadas */
+@keyframes animate-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-in-from-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slide-in-from-bottom-10 {
+  from { transform: translateY(40px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-in { animation: animate-in 0.3s ease forwards; }
+.fade-in { animation: fade-in 0.3s ease forwards; }
+.animate-spin { animation: spin 1s linear infinite; }
+.duration-300 { animation-duration: 0.3s; }
+.duration-500 { animation-duration: 0.5s; }
+
+.slide-in-from-right { animation: slide-in-from-right 0.5s ease forwards; }
+.slide-in-from-bottom-10 { animation: slide-in-from-bottom-10 0.5s ease forwards; }
+
+/* Scrollbar personalizada */
+.custom-scrollbar::-webkit-scrollbar { width: 5px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* Selección de texto */
+::selection { background: #00cc66; color: #000; }

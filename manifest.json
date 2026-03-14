@@ -1,0 +1,22 @@
+{
+  "name": "Apex Journal | Bitácora de Trading",
+  "short_name": "Apex Journal",
+  "description": "Bitácora de trading profesional y terminal de análisis.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://fav.farm/📈",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://fav.farm/📈",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
