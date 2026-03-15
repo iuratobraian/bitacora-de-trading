@@ -107,7 +107,7 @@ const SessionStatus = () => {
                 const isActive = getSessionStatus(s.start, s.end, utcHour);
                 return (
                     <div key={s.name} className="flex items-center gap-2">
-                        <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-primary animate-pulse shadow-[0_0_8px_rgba(0,204,102,0.5)]' : 'bg-gray-600'}`}></div>
+                        <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-primary animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-gray-600'}`}></div>
                         <span className={`text-[8px] font-black uppercase tracking-widest ${isActive ? 'text-white' : 'text-gray-500'}`}>{s.name}</span>
                     </div>
                 );
@@ -171,7 +171,7 @@ const Dashboard: React.FC = () => {
 
         const messageInterval = setInterval(() => {
             setCurrentMessageIndex(prev => (prev + 1) % PSYCHOLOGY_MESSAGES.length);
-        }, 10000);
+        }, 300000); // 5 minutos
 
         return () => {
             window.removeEventListener('apex-db-change', loadData);
@@ -358,12 +358,10 @@ const Dashboard: React.FC = () => {
                 </div>
             </div>
 
-            {/* WALL STREET ticker */}
+            {/* NEW SINGLE PHRASE TICKER */}
             <div className="ticker-container">
-                <div className="ticker-text">
-                    {Array(3).fill(PSYCHOLOGY_MESSAGES.join(" • ")).map((text, i) => (
-                        <span key={i}>{text}</span>
-                    ))}
+                <div key={currentMessageIndex} className="ticker-text">
+                    {PSYCHOLOGY_MESSAGES[currentMessageIndex]}
                 </div>
             </div>
 
