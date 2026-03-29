@@ -18,36 +18,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
-    let query = supabase.from('app_users').select('id, data');
+    const { data: allUsers, error } = await supabase
+      .from('app_users')
+      .select('id, data');
 
-    if (userId && typeof userId === 'string') {
-      query = query.eq('id', userId);
+    if (error || !allUsers || allUsers.length === 0) {
+      return res.status(404).json({ error: 'No users in database' });
     }
 
-    const { data: users, error } = await query;
+    let targetUser: any = null;
 
-    if (error || !users || users.length === 0) {
+    if (userId && typeof userId === 'string') {
+      targetUser = allUsers.find((u: any) => u.id === userId);
+    } else if (email && typeof email === 'string') {
+      targetUser = allUsers.find((u: any) => 
+        u.data?.email?.toLowerCase() === email.toLowerCase()
+      );
+    }
+
+    if (!targetUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    let user = users[0];
-    const userData = user.data as any;
-
-    if (email && typeof email === 'string') {
-      const found = users.find((u: any) => u.data?.email?.toLowerCase() === email.toLowerCase());
-      if (!found) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-      user = found;
-    }
-
-    const finalData = user.data as any;
+    const userData = targetUser.data as any;
     
     return res.status(200).json({
-      id: user.id,
-      email: finalData?.email || '',
-      displayName: finalData?.name || 'Trader',
-      role: finalData?.role || 'USER'
+      id: targetUser.id,
+      email: userData?.email || '',
+      displayName: userData?.name || 'Trader',
+      role: userData?.role || 'USER'
     });
   } catch (error) {
     console.error('Error fetching user:', error);
